@@ -19,32 +19,37 @@ export const loginRequest = {
   scopes: ["Files.Read", "User.Read"],
 };
 
+export async function getAccessToken() {
+  await msalInstance.initialize();
+  const accounts = msalInstance.getAllAccounts();
+  if (accounts.length === 0) throw new Error("Não autenticado");
+  const response = await msalInstance.acquireTokenSilent({
+    ...loginRequest,
+    account: accounts[0],
+  });
+  return response.accessToken;
+}
+
 export async function fetchPlanilha() {
   const token = await getAccessToken();
   const encodedPath = ONEDRIVE_PATH.split("/").map(s => encodeURIComponent(s)).join("/");
-  
-  // Tenta primeiro o drive pessoal, depois o drive corporativo
-  const urls = [
-    `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/content`,
-    `https://graph.microsoft.com/v1.0/me/drives`,
-  ];
 
-  // Busca a lista de drives disponíveis
-  const drivesRes = await fetch(urls[1], {
+  const drivesRes = await fetch("https://graph.microsoft.com/v1.0/me/drives", {
     headers: { Authorization: `Bearer ${token}` },
   });
   const drivesData = await drivesRes.json();
-  
-  // Tenta cada drive até encontrar o arquivo
-  const drives = [{ id: "me" }, ...(drivesData.value || [])];
-  for (const drive of drives) {
-    const url = drive.id === "me"
-      ? `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/content`
-      : `https://graph.microsoft.com/v1.0/drives/${drive.id}/root:/${encodedPath}:/content`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) return await res.arrayBuffer();
+  console.log("Drives disponíveis:", JSON.stringify(drivesData));
+
+  const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/content`;
+  console.log("Tentando URL:", url);
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  console.log("Status:", res.status);
+  if (!res.ok) {
+    const errText = await res.text();
+    console.log("Erro detalhado:", errText);
+    throw new Error(`Erro ao buscar arquivo: ${res.status} - ${errText}`);
   }
-  throw new Error("Arquivo não encontrado em nenhum drive disponível");
+  return await res.arrayBuffer();
 }
