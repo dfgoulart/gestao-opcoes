@@ -2,6 +2,7 @@ import { PublicClientApplication } from "@azure/msal-browser";
 
 const CLIENT_ID = "5afc0f8c-2edf-4b08-87ff-02afd798c442";
 const TENANT_ID = "cefdbb51-3f9b-42f6-9035-321cad67be3b";
+const DRIVE_ID = "b!KYjiZUP18kuYhFviktQw722rXRO99dFAhHinzGeP281GkMu_gx-LQ6hCCacE2WZ8";
 const ONEDRIVE_PATH = "Negócios/Opções/Carteira Daniel/Controle de estruturas - DFG.xlsx";
 
 export const msalConfig = {
@@ -33,14 +34,7 @@ export async function getAccessToken() {
 export async function fetchPlanilha() {
   const token = await getAccessToken();
   const encodedPath = ONEDRIVE_PATH.split("/").map(s => encodeURIComponent(s)).join("/");
-
-  const drivesRes = await fetch("https://graph.microsoft.com/v1.0/me/drives", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const drivesData = await drivesRes.json();
-  console.log("Drives disponíveis:", JSON.stringify(drivesData));
-
-  const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/content`;
+  const url = `https://graph.microsoft.com/v1.0/drives/${DRIVE_ID}/root:/${encodedPath}:/content`;
   console.log("Tentando URL:", url);
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
@@ -48,8 +42,5 @@ export async function fetchPlanilha() {
   console.log("Status:", res.status);
   if (!res.ok) {
     const errText = await res.text();
-    console.log("Erro detalhado:", errText);
-    throw new Error(`Erro ao buscar arquivo: ${res.status} - ${errText}`);
-  }
-  return await res.arrayBuffer();
-}
+    console.log("Erro:", errText);
+    throw new Error(`Erro
