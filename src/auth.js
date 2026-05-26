@@ -32,7 +32,7 @@ export async function getAccessToken() {
 
 export async function fetchPlanilha() {
   const token = await getAccessToken();
-  const encodedPath = encodeURIComponent(ONEDRIVE_PATH);
+  const encodedPath = ONEDRIVE_PATH.split("/").map(s => encodeURIComponent(s)).join("/");
   const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/content`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
