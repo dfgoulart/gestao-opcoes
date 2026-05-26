@@ -19,24 +19,32 @@ export const loginRequest = {
   scopes: ["Files.Read", "User.Read"],
 };
 
-export async function getAccessToken() {
-  await msalInstance.initialize();
-  const accounts = msalInstance.getAllAccounts();
-  if (accounts.length === 0) throw new Error("Não autenticado");
-  const response = await msalInstance.acquireTokenSilent({
-    ...loginRequest,
-    account: accounts[0],
-  });
-  return response.accessToken;
-}
-
 export async function fetchPlanilha() {
   const token = await getAccessToken();
   const encodedPath = ONEDRIVE_PATH.split("/").map(s => encodeURIComponent(s)).join("/");
-  const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/content`;
-  const res = await fetch(url, {
+  
+  // Tenta primeiro o drive pessoal, depois o drive corporativo
+  const urls = [
+    `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/content`,
+    `https://graph.microsoft.com/v1.0/me/drives`,
+  ];
+
+  // Busca a lista de drives disponíveis
+  const drivesRes = await fetch(urls[1], {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(`Erro ao buscar arquivo: ${res.status} ${res.statusText}`);
-  return await res.arrayBuffer();
+  const drivesData = await drivesRes.json();
+  
+  // Tenta cada drive até encontrar o arquivo
+  const drives = [{ id: "me" }, ...(drivesData.value || [])];
+  for (const drive of drives) {
+    const url = drive.id === "me"
+      ? `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/content`
+      : `https://graph.microsoft.com/v1.0/drives/${drive.id}/root:/${encodedPath}:/content`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) return await res.arrayBuffer();
+  }
+  throw new Error("Arquivo não encontrado em nenhum drive disponível");
 }
