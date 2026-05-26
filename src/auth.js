@@ -2,7 +2,7 @@ import { PublicClientApplication } from "@azure/msal-browser";
 
 const CLIENT_ID = "5afc0f8c-2edf-4b08-87ff-02afd798c442";
 const TENANT_ID = "cefdbb51-3f9b-42f6-9035-321cad67be3b";
-const FILE_NAME = "Controle de estruturas - DFG.xlsx";
+const FILE_SEARCH = "Controle de estruturas - DFG";
 
 export const msalConfig = {
   auth: {
@@ -33,18 +33,22 @@ export async function getAccessToken() {
 export async function fetchPlanilha() {
   const token = await getAccessToken();
 
-  // Busca o arquivo pelo nome usando search
-  const searchUrl = `https://graph.microsoft.com/v1.0/me/drive/search(q='${encodeURIComponent(FILE_NAME)}')`;
+  const searchUrl = `https://graph.microsoft.com/v1.0/me/drive/search(q='${encodeURIComponent(FILE_SEARCH)}')`;
   const searchRes = await fetch(searchUrl, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const searchData = await searchRes.json();
-  console.log("Resultado busca:", JSON.stringify(searchData?.value?.map(f => ({ name: f.name, id: f.id, path: f.parentReference?.path }))));
 
-  const file = searchData?.value?.find(f => f.name === FILE_NAME);
-  if (!file) throw new Error(`Arquivo "${FILE_NAME}" não encontrado no OneDrive`);
+  // Filtra só arquivos .xlsx e pega o mais recente
+  const files = (searchData?.value || [])
+    .filter(f => f.name?.endsWith(".xlsx") && f.name?.startsWith("Controle de estruturas - DFG"))
+    .sort((a, b) => new Date(b.lastModifiedDateTime) - new Date(a.lastModifiedDateTime));
 
-  console.log("Arquivo encontrado, id:", file.id);
+  if (files.length === 0) throw new Error("Nenhum arquivo encontrado no OneDrive");
+
+  const file = files[0];
+  console.log("Usando arquivo:", file.name, "modificado em:", file.lastModifiedDateTime);
+
   const url = `https://graph.microsoft.com/v1.0/me/drive/items/${file.id}/content`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
