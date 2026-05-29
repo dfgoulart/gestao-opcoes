@@ -584,16 +584,18 @@ function ProximityAlert({ positions, threshold }) {
 }
 
 function ByCompanyTable({ positions }) {
-  const [sort, setSort] = useState({ col: "totalMtM", dir: 1 });
+  const [sort, setSort] = useState({ col: "notional", dir: 1 });
 
   // Agrupa por ativo (acao)
   const grupos = {};
   for (const p of positions) {
     const key = p.acao || "—";
-    if (!grupos[key]) grupos[key] = { acao: key, nPos: 0, totalQtd: 0, totalMtM: 0, totalPL: 0, mtmCount: 0, plCount: 0 };
+    if (!grupos[key]) grupos[key] = { acao: key, nPos: 0, totalQtd: 0, notional: 0, totalMtM: 0, totalPL: 0, mtmCount: 0, plCount: 0 };
     const g = grupos[key];
     g.nPos += 1;
     const q = parseFloat(p.qtd); if (!isNaN(q)) g.totalQtd += q;
+    const strike = parseFloat(p.strike);
+    if (!isNaN(q) && !isNaN(strike)) g.notional += q * strike;
     if (!isNA(p.mtm) && !isNaN(parseFloat(p.mtm))) { g.totalMtM += parseFloat(p.mtm); g.mtmCount += 1; }
     if (!isNA(p.plTotal) && !isNaN(parseFloat(p.plTotal))) { g.totalPL += parseFloat(p.plTotal); g.plCount += 1; }
   }
@@ -612,6 +614,7 @@ function ByCompanyTable({ positions }) {
     { k: "acao", l: "Ativo", a: "left" },
     { k: "nPos", l: "Nº posições", a: "right" },
     { k: "totalQtd", l: "Qtd total", a: "right" },
+    { k: "notional", l: "Notional (R$)", a: "right" },
     { k: "totalMtM", l: "MtM total (R$)", a: "right" },
     { k: "totalPL", l: "P&L total (R$)", a: "right" },
   ];
@@ -620,6 +623,7 @@ function ByCompanyTable({ positions }) {
   const tMtM = rows.reduce((s, g) => s + g.totalMtM, 0);
   const tPL = rows.reduce((s, g) => s + g.totalPL, 0);
   const tQtd = rows.reduce((s, g) => s + g.totalQtd, 0);
+  const tNotional = rows.reduce((s, g) => s + g.notional, 0);
   const tPos = rows.reduce((s, g) => s + g.nPos, 0);
   const anyMtM = rows.some(g => g.mtmCount > 0);
   const anyPL = rows.some(g => g.plCount > 0);
@@ -636,6 +640,7 @@ function ByCompanyTable({ positions }) {
               <td style={{ ...td("left"), fontWeight: 500 }}>{g.acao}</td>
               <td style={td("right")}>{g.nPos}</td>
               <td style={td("right")}>{fmt(g.totalQtd, 0)}</td>
+              <td style={{ ...td("right"), fontWeight: 500 }}>{g.notional > 0 ? fmtR(g.notional, 0) : "—"}</td>
               <td style={{ ...td("right"), color: g.mtmCount === 0 ? "var(--color-text-secondary)" : g.totalMtM >= 0 ? C_POS : C_NEG }}>
                 {g.mtmCount === 0 ? "—" : fmtR(g.totalMtM)}
                 {g.mtmCount > 0 && g.mtmCount < g.nPos && <span style={{ fontSize: 10, color: "var(--color-text-secondary)", marginLeft: 4 }}>({g.mtmCount}/{g.nPos})</span>}
@@ -652,6 +657,7 @@ function ByCompanyTable({ positions }) {
             <td style={{ ...td("left"), fontWeight: 500 }}>Total</td>
             <td style={{ ...td("right"), fontWeight: 500 }}>{tPos}</td>
             <td style={{ ...td("right"), fontWeight: 500 }}>{fmt(tQtd, 0)}</td>
+            <td style={{ ...td("right"), fontWeight: 500 }}>{tNotional > 0 ? fmtR(tNotional, 0) : "—"}</td>
             <td style={{ ...td("right"), fontWeight: 500, color: !anyMtM ? "var(--color-text-secondary)" : tMtM >= 0 ? C_POS : C_NEG }}>{!anyMtM ? "—" : fmtR(tMtM)}</td>
             <td style={{ ...td("right"), fontWeight: 500, color: !anyPL ? "var(--color-text-secondary)" : tPL >= 0 ? C_POS : C_NEG }}>{!anyPL ? "—" : fmtR(tPL)}</td>
           </tr>
