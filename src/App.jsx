@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
 import { msalInstance, loginRequest, fetchPlanilha } from "./auth";
 
+// ── Helpers ───────────────────────────────────────────────────
 function fmt(val, decimals = 2) {
   if (val == null || val === "" || (typeof val === "string" && val.includes("N/A"))) return "—";
   const n = parseFloat(val);
@@ -33,6 +34,29 @@ function isNA(val) {
   return false;
 }
 
+// Ordem cronológica dos meses
+const MONTH_ORDER = {
+  "Janeiro": 1, "Fevereiro": 2, "Março": 3, "Abril": 4,
+  "Maio": 5, "Junho": 6, "Julho": 7, "Agosto": 8,
+  "Setembro": 9, "Outubro": 10, "Novembro": 11, "Dezembro": 12
+};
+
+function sortMonths(months) {
+  return [...months].sort((a, b) => {
+    if (a.ano !== b.ano) return a.ano - b.ano;
+    return (MONTH_ORDER[a.mes] || 0) - (MONTH_ORDER[b.mes] || 0);
+  });
+}
+
+// YTD = meses do ano corrente
+function calcYTD(months) {
+  const currentYear = new Date().getFullYear();
+  return months
+    .filter(m => m.ano === currentYear)
+    .reduce((s, m) => s + (parseFloat(m.resultado) || 0), 0);
+}
+
+// ── Parser ────────────────────────────────────────────────────
 function parseWorkbook(wb) {
   const result = { plAnual: [], positionsOpen: [], irpf: [], dre: null };
 
@@ -47,7 +71,10 @@ function parseWorkbook(wb) {
       if (row[3] && typeof row[3] === "string" && row[3] !== "TOTAL")
         months.push({ mes: row[3], resultado: row[4], ano: 2026 });
     }
-    result.plAnual = months.filter(m => m.resultado != null && !isNaN(parseFloat(m.resultado)));
+    // Ordena cronologicamente
+    result.plAnual = sortMonths(
+      months.filter(m => m.resultado != null && !isNaN(parseFloat(m.resultado)))
+    );
   }
 
   const wsCtrl = wb.Sheets["Controle de posições"];
@@ -93,6 +120,7 @@ function parseWorkbook(wb) {
     };
   }
 
+  // IRPF com ano inferido a partir da sequência de meses
   const wsIR = wb.Sheets["IRPF Ações + Opções"];
   if (wsIR) {
     const data = XLSX.utils.sheet_to_json(wsIR, { header: 1, defval: null });
@@ -101,10 +129,13 @@ function parseWorkbook(wb) {
       const irRows = {};
       for (let r = 1; r < data.length; r++) { if (data[r][0]) irRows[data[r][0]] = data[r]; }
       const months = headers.slice(1).filter(h => h && typeof h === "string");
+      // Inferir ano: começa em 2025, vira 2026 quando passa de Dezembro para Janeiro
+      let ano = 2025;
       result.irpf = months.map((mes, i) => {
         const col = i + 1;
+        if (i > 0 && MONTH_ORDER[mes] < MONTH_ORDER[months[i - 1]]) ano++;
         return {
-          mes,
+          mes, ano,
           resultadoLiquido: irRows["Resultado líquido no mês"]?.[col],
           baseCalculo: irRows["Base de cálculo do imposto"]?.[col],
           aliquota: irRows["Alíquota do imposto"]?.[col],
@@ -119,25 +150,26 @@ function parseWorkbook(wb) {
   return result;
 }
 
+// ── Constants ─────────────────────────────────────────────────
 const TABS = [
   { id: "overview", label: "Visão geral", icon: "ti-layout-dashboard" },
   { id: "positions", label: "Posições abertas", icon: "ti-table" },
-  { id: "pl", label: "P&L anual", icon: "ti-chart-bar" },
+  { id: "pl", label: "P&L", icon: "ti-chart-bar" },
   { id: "irpf", label: "IRPF", icon: "ti-receipt-tax" },
 ];
 const C_POS = "#1D9E75", C_NEG = "#D85A30";
 const th = (a) => ({ padding: "9px 12px", textAlign: a, fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", whiteSpace: "nowrap", background: "var(--color-background-secondary)" });
 const td = (a) => ({ padding: "8px 12px", textAlign: a, color: "var(--color-text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
 
+// ── App ───────────────────────────────────────────────────────
 export default function App() {
-  const [authState, setAuthState] = useState("idle"); // idle | loading | authenticated | error
+  const [authState, setAuthState] = useState("idle");
   const [data, setData] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [tab, setTab] = useState("overview");
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState(null);
 
-  // Handle redirect after login
   useEffect(() => {
     msalInstance.initialize().then(() => {
       msalInstance.handleRedirectPromise().then((response) => {
@@ -171,9 +203,7 @@ export default function App() {
   const logout = async () => {
     await msalInstance.initialize();
     const accounts = msalInstance.getAllAccounts();
-    if (accounts.length > 0) {
-      await msalInstance.logoutRedirect({ account: accounts[0] });
-    }
+    if (accounts.length > 0) await msalInstance.logoutRedirect({ account: accounts[0] });
   };
 
   const loadFromOneDrive = async () => {
@@ -191,7 +221,6 @@ export default function App() {
     }
   };
 
-  // ── Login screen ──────────────────────────────────────────────
   if (authState === "idle" || authState === "error") return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
       <div style={{ maxWidth: 400, width: "100%", textAlign: "center" }}>
@@ -215,7 +244,6 @@ export default function App() {
     </div>
   );
 
-  // ── Loading screen ─────────────────────────────────────────────
   if (authState === "loading" || (authState === "authenticated" && !data && loadingData)) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ textAlign: "center" }}>
@@ -226,7 +254,6 @@ export default function App() {
     </div>
   );
 
-  // ── Error loading data ─────────────────────────────────────────
   if (authState === "authenticated" && !data && !loadingData) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
       <div style={{ maxWidth: 400, width: "100%", textAlign: "center" }}>
@@ -249,12 +276,21 @@ export default function App() {
 
   const { plAnual, positionsOpen, irpf, dre } = data;
   const totalAnual = plAnual.reduce((s, m) => s + (parseFloat(m.resultado) || 0), 0);
+  const ytd = calcYTD(plAnual);
   const melhorMes = plAnual.reduce((b, m) => !b || parseFloat(m.resultado) > parseFloat(b.resultado) ? m : b, null);
   const piorMes = plAnual.reduce((b, m) => !b || parseFloat(m.resultado) < parseFloat(b.resultado) ? m : b, null);
   const mesesPos = plAnual.filter(m => parseFloat(m.resultado) > 0).length;
 
+  // Somatórios posições abertas
+  const mtmValidas = positionsOpen.filter(p => !isNA(p.mtm) && !isNaN(parseFloat(p.mtm)));
+  const plValidas = positionsOpen.filter(p => !isNA(p.plTotal) && !isNaN(parseFloat(p.plTotal)));
+  const totalMtM = mtmValidas.reduce((s, p) => s + parseFloat(p.mtm), 0);
+  const totalPL = plValidas.reduce((s, p) => s + parseFloat(p.plTotal), 0);
+
   return (
     <div style={{ padding: "1.5rem 0" }}>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
         <div>
@@ -274,7 +310,6 @@ export default function App() {
           </button>
         </div>
       </div>
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 2, marginBottom: "1.25rem", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
@@ -285,21 +320,21 @@ export default function App() {
         ))}
       </div>
 
-      {/* Visão geral */}
+      {/* ── Visão geral ── */}
       {tab === "overview" && (
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: "1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: "1.25rem" }}>
             {[
               { label: "resultado total", value: fmtR(totalAnual), color: totalAnual >= 0 ? C_POS : C_NEG },
               { label: "meses registrados", value: plAnual.length },
               { label: "meses positivos", value: `${mesesPos} / ${plAnual.length}` },
-              { label: "melhor mês", value: melhorMes ? `${melhorMes.mes} (${fmtR(melhorMes.resultado, 0)})` : "—", color: C_POS },
-              { label: "pior mês", value: piorMes ? `${piorMes.mes} (${fmtR(piorMes.resultado, 0)})` : "—", color: parseFloat(piorMes?.resultado) < 0 ? C_NEG : null },
+              { label: "melhor mês", value: melhorMes ? `${melhorMes.mes}/${melhorMes.ano} (${fmtR(melhorMes.resultado, 0)})` : "—", color: C_POS },
+              { label: "pior mês", value: piorMes ? `${piorMes.mes}/${piorMes.ano} (${fmtR(piorMes.resultado, 0)})` : "—", color: parseFloat(piorMes?.resultado) < 0 ? C_NEG : null },
               { label: "posições abertas", value: positionsOpen.length },
             ].map((c, i) => (
               <div key={i} style={{ background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", padding: "14px" }}>
                 <p style={{ fontSize: 11, color: "var(--color-text-secondary)", margin: "0 0 5px" }}>{c.label}</p>
-                <p style={{ fontSize: 15, fontWeight: 500, margin: 0, color: c.color || "var(--color-text-primary)", wordBreak: "break-word" }}>{c.value}</p>
+                <p style={{ fontSize: 14, fontWeight: 500, margin: 0, color: c.color || "var(--color-text-primary)", wordBreak: "break-word", lineHeight: 1.4 }}>{c.value}</p>
               </div>
             ))}
           </div>
@@ -337,23 +372,62 @@ export default function App() {
         </div>
       )}
 
+      {/* ── Posições abertas ── */}
       {tab === "positions" && (
         <div>
-          <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--color-text-secondary)" }}>
-            {positionsOpen.length} posições short put em aberto
-            <span style={{ marginLeft: 12 }}><i className="ti ti-info-circle" aria-hidden style={{ marginRight: 3 }} />MtM disponível quando Profit está ativo</span>
-          </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--color-text-secondary)" }}>
+              {positionsOpen.length} posições short put em aberto
+              <span style={{ marginLeft: 12 }}><i className="ti ti-info-circle" aria-hidden style={{ marginRight: 3 }} />MtM disponível quando Profit está ativo</span>
+            </p>
+          </div>
+
+          {/* Somatórios */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <div style={{ background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", padding: "12px 16px" }}>
+              <p style={{ fontSize: 11, color: "var(--color-text-secondary)", margin: "0 0 4px" }}>
+                MtM total {mtmValidas.length < positionsOpen.length ? `(${mtmValidas.length}/${positionsOpen.length} posições)` : ""}
+              </p>
+              <p style={{ fontSize: 15, fontWeight: 500, margin: 0, color: mtmValidas.length === 0 ? "var(--color-text-secondary)" : totalMtM >= 0 ? C_POS : C_NEG }}>
+                {mtmValidas.length === 0 ? "—" : fmtR(totalMtM)}
+              </p>
+            </div>
+            <div style={{ background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", padding: "12px 16px" }}>
+              <p style={{ fontSize: 11, color: "var(--color-text-secondary)", margin: "0 0 4px" }}>
+                P&L total {plValidas.length < positionsOpen.length ? `(${plValidas.length}/${positionsOpen.length} posições)` : ""}
+              </p>
+              <p style={{ fontSize: 15, fontWeight: 500, margin: 0, color: plValidas.length === 0 ? "var(--color-text-secondary)" : totalPL >= 0 ? C_POS : C_NEG }}>
+                {plValidas.length === 0 ? "—" : fmtR(totalPL)}
+              </p>
+            </div>
+          </div>
+
           <PositionsTable positions={positionsOpen} />
         </div>
       )}
 
+      {/* ── P&L ── */}
       {tab === "pl" && (
         <div>
+          {/* YTD dashboard */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: "1.25rem" }}>
+            {[
+              { label: `resultado YTD (${new Date().getFullYear()})`, value: fmtR(ytd), color: ytd >= 0 ? C_POS : C_NEG },
+              { label: "resultado total (todos os anos)", value: fmtR(totalAnual), color: totalAnual >= 0 ? C_POS : C_NEG },
+              { label: "meses positivos", value: `${mesesPos} / ${plAnual.length}` },
+            ].map((c, i) => (
+              <div key={i} style={{ background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", padding: "14px" }}>
+                <p style={{ fontSize: 11, color: "var(--color-text-secondary)", margin: "0 0 5px" }}>{c.label}</p>
+                <p style={{ fontSize: 15, fontWeight: 500, margin: 0, color: c.color || "var(--color-text-primary)" }}>{c.value}</p>
+              </div>
+            ))}
+          </div>
           <FullChart data={plAnual} />
           <div style={{ marginTop: "1rem" }}><PLTable data={plAnual} /></div>
         </div>
       )}
 
+      {/* ── IRPF ── */}
       {tab === "irpf" && <IRPFTable data={irpf} />}
     </div>
   );
@@ -361,12 +435,12 @@ export default function App() {
 
 function MiniChart({ data }) {
   if (!data?.length) return null;
-  const chartData = data.map(m => ({ name: m.mes.substring(0, 3), value: parseFloat(m.resultado) || 0 }));
+  const chartData = data.map(m => ({ name: `${m.mes.substring(0, 3)}/${String(m.ano).substring(2)}`, value: parseFloat(m.resultado) || 0 }));
   return (
     <div style={{ height: 150 }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-          <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--color-text-secondary)" }} axisLine={false} tickLine={false} />
+          <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--color-text-secondary)" }} axisLine={false} tickLine={false} />
           <YAxis hide />
           <Tooltip formatter={(v) => ["R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 2 }), "Resultado"]} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
           <ReferenceLine y={0} stroke="var(--color-border-secondary)" strokeWidth={0.5} />
@@ -386,7 +460,7 @@ function FullChart({ data }) {
     <div style={{ height: 220 }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
-          <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--color-text-secondary)" }} axisLine={false} tickLine={false} />
+          <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--color-text-secondary)" }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fontSize: 11, fill: "var(--color-text-secondary)" }} axisLine={false} tickLine={false} tickFormatter={v => "R$" + (Math.abs(v) >= 1000 ? (v / 1000).toFixed(0) + "k" : v)} />
           <Tooltip formatter={(v) => ["R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), "Resultado"]} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
           <ReferenceLine y={0} stroke="var(--color-border-primary)" strokeWidth={0.5} />
@@ -480,8 +554,8 @@ function IRPFTable({ data }) {
     <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-lg)", overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 600 }}>
         <thead>
-          <tr>{["Mês","Resultado líq.","Base cálculo","Alíquota","Imposto devido","IR retido","A pagar","Status"].map((h, i) =>
-            <th key={i} style={th(i === 0 || i === 7 ? "left" : "right")}>{h}</th>)}</tr>
+          <tr>{["Mês","Ano","Resultado líq.","Base cálculo","Alíquota","Imposto devido","IR retido","A pagar","Status"].map((h, i) =>
+            <th key={i} style={th(i === 0 || i === 1 || i === 8 ? "left" : "right")}>{h}</th>)}</tr>
         </thead>
         <tbody>
           {data.map((row, i) => {
@@ -491,6 +565,7 @@ function IRPFTable({ data }) {
             return (
               <tr key={i} style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
                 <td style={td("left")}>{row.mes}</td>
+                <td style={td("left")}>{row.ano}</td>
                 <td style={td("right")}>{fmtR(row.resultadoLiquido)}</td>
                 <td style={td("right")}>{fmtR(row.baseCalculo)}</td>
                 <td style={td("right")}>{fmtPct(row.aliquota)}</td>
