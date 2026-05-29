@@ -120,32 +120,26 @@ function parseWorkbook(wb) {
     };
   }
 
-  // IRPF com ano inferido a partir da sequência de meses
+  // IRPF — nova estrutura: linha por mês
+  // Colunas: Ano ref | Mês operação | Mês recolhimento | Valor devido (MyCapital) | Valor pago | OBS
   const wsIR = wb.Sheets["IRPF Ações + Opções"];
   if (wsIR) {
     const data = XLSX.utils.sheet_to_json(wsIR, { header: 1, defval: null });
-    if (data.length > 0) {
-      const headers = data[0];
-      const irRows = {};
-      for (let r = 1; r < data.length; r++) { if (data[r][0]) irRows[data[r][0]] = data[r]; }
-      const months = headers.slice(1).filter(h => h && typeof h === "string");
-      // Inferir ano: começa em 2025, vira 2026 quando passa de Dezembro para Janeiro
-      let ano = 2025;
-      result.irpf = months.map((mes, i) => {
-        const col = i + 1;
-        if (i > 0 && MONTH_ORDER[mes] < MONTH_ORDER[months[i - 1]]) ano++;
-        return {
-          mes, ano,
-          resultadoLiquido: irRows["Resultado líquido no mês"]?.[col],
-          baseCalculo: irRows["Base de cálculo do imposto"]?.[col],
-          aliquota: irRows["Alíquota do imposto"]?.[col],
-          impostoDevido: irRows["Imposto devido"]?.[col],
-          irFonte: irRows["IR na fonte"]?.[col],
-          impostoPagar: irRows["Imposto a pagar"]?.[col],
-          status: irRows["Status"]?.[col],
-        };
-      }).filter(m => m.resultadoLiquido != null);
+    const rows = [];
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      // Pula linhas sem ano ou sem mês de operação
+      if (row[0] == null || row[1] == null) continue;
+      rows.push({
+        ano: row[0],
+        mesOperacao: row[1],
+        mesRecolhimento: row[2],
+        valorDevido: row[3],
+        valorPago: row[4],
+        obs: row[5],
+      });
     }
+    result.irpf = rows;
   }
   return result;
 }
@@ -717,34 +711,59 @@ function PositionsTable({ positions }) {
 
 function IRPFTable({ data }) {
   if (!data?.length) return <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>Nenhum dado de IRPF encontrado.</p>;
+
+  const totalDevido = data.reduce((s, r) => s + (parseFloat(r.valorDevido) || 0), 0);
+  const totalPago = data.reduce((s, r) => s + (parseFloat(r.valorPago) || 0), 0);
+
   return (
-    <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-lg)", overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 600 }}>
-        <thead>
-          <tr>{["Mês","Ano","Resultado líq.","Base cálculo","Alíquota","Imposto devido","IR retido","A pagar","Status"].map((h, i) =>
-            <th key={i} style={th(i === 0 || i === 1 || i === 8 ? "left" : "right")}>{h}</th>)}</tr>
-        </thead>
-        <tbody>
-          {data.map((row, i) => {
-            const pagar = parseFloat(row.impostoPagar);
-            const st = row.status || "";
-            const stColor = st.toLowerCase().includes("pago") && !st.toLowerCase().includes("não") ? C_POS : st.toLowerCase().includes("não") ? C_NEG : "var(--color-text-secondary)";
-            return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: "1.25rem" }}>
+        {[
+          { label: "total devido (principal)", value: fmtR(totalDevido) },
+          { label: "total pago", value: fmtR(totalPago) },
+          { label: "meses registrados", value: data.length },
+        ].map((c, i) => (
+          <div key={i} style={{ background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", padding: "14px" }}>
+            <p style={{ fontSize: 11, color: "var(--color-text-secondary)", margin: "0 0 5px" }}>{c.label}</p>
+            <p style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>{c.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-lg)", overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 680 }}>
+          <thead>
+            <tr>
+              <th style={th("left")}>Ano ref.</th>
+              <th style={th("left")}>Mês operação</th>
+              <th style={th("left")}>Mês recolhimento</th>
+              <th style={th("right")}>Valor devido (MyCapital)</th>
+              <th style={th("right")}>Valor pago</th>
+              <th style={th("left")}>Obs.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row, i) => (
               <tr key={i} style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
-                <td style={td("left")}>{row.mes}</td>
                 <td style={td("left")}>{row.ano}</td>
-                <td style={td("right")}>{fmtR(row.resultadoLiquido)}</td>
-                <td style={td("right")}>{fmtR(row.baseCalculo)}</td>
-                <td style={td("right")}>{fmtPct(row.aliquota)}</td>
-                <td style={td("right")}>{fmtR(row.impostoDevido)}</td>
-                <td style={td("right")}>{fmtR(row.irFonte)}</td>
-                <td style={{ ...td("right"), fontWeight: 500, color: !isNaN(pagar) && pagar > 0 ? C_NEG : "var(--color-text-primary)" }}>{fmtR(row.impostoPagar)}</td>
-                <td style={{ ...td("left"), color: stColor, fontSize: 12 }}>{st || "—"}</td>
+                <td style={td("left")}>{row.mesOperacao}</td>
+                <td style={td("left")}>{row.mesRecolhimento || "—"}</td>
+                <td style={td("right")}>{fmtR(row.valorDevido)}</td>
+                <td style={td("right")}>{fmtR(row.valorPago)}</td>
+                <td style={{ ...td("left"), fontSize: 12, color: "var(--color-text-secondary)", whiteSpace: "normal" }}>{row.obs || "—"}</td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: "0.5px solid var(--color-border-primary)", background: "var(--color-background-secondary)" }}>
+              <td colSpan={3} style={{ ...td("left"), fontWeight: 500 }}>Total</td>
+              <td style={{ ...td("right"), fontWeight: 500 }}>{fmtR(totalDevido)}</td>
+              <td style={{ ...td("right"), fontWeight: 500 }}>{fmtR(totalPago)}</td>
+              <td style={td("left")}></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }
