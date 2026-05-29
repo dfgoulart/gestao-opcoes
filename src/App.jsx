@@ -402,6 +402,13 @@ export default function App() {
             </div>
           </div>
 
+          {/* Consolidado por empresa */}
+          <h3 style={{ fontSize: 15, fontWeight: 500, margin: "4px 0 10px" }}>Consolidado por ativo</h3>
+          <div style={{ marginBottom: "1.5rem" }}>
+            <ByCompanyTable positions={positionsOpen} />
+          </div>
+
+          <h3 style={{ fontSize: 15, fontWeight: 500, margin: "4px 0 10px" }}>Todas as posições</h3>
           <PositionsTable positions={positionsOpen} />
         </div>
       )}
@@ -495,6 +502,84 @@ function PLTable({ data }) {
           <tr style={{ borderTop: "0.5px solid var(--color-border-primary)", background: "var(--color-background-secondary)" }}>
             <td colSpan={2} style={{ ...td("left"), fontWeight: 500 }}>Total</td>
             <td style={{ ...td("right"), fontWeight: 500, color: total >= 0 ? C_POS : C_NEG }}>{fmtR(total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+function ByCompanyTable({ positions }) {
+  const [sort, setSort] = useState({ col: "totalMtM", dir: 1 });
+
+  // Agrupa por ativo (acao)
+  const grupos = {};
+  for (const p of positions) {
+    const key = p.acao || "—";
+    if (!grupos[key]) grupos[key] = { acao: key, nPos: 0, totalQtd: 0, totalMtM: 0, totalPL: 0, mtmCount: 0, plCount: 0 };
+    const g = grupos[key];
+    g.nPos += 1;
+    const q = parseFloat(p.qtd); if (!isNaN(q)) g.totalQtd += q;
+    if (!isNA(p.mtm) && !isNaN(parseFloat(p.mtm))) { g.totalMtM += parseFloat(p.mtm); g.mtmCount += 1; }
+    if (!isNA(p.plTotal) && !isNaN(parseFloat(p.plTotal))) { g.totalPL += parseFloat(p.plTotal); g.plCount += 1; }
+  }
+  const rows = Object.values(grupos);
+
+  const sorted = [...rows].sort((a, b) => {
+    let va = a[sort.col], vb = b[sort.col];
+    if (sort.col === "acao") return va > vb ? sort.dir : va < vb ? -sort.dir : 0;
+    return (va - vb) * sort.dir;
+  });
+
+  const toggleSort = (col) => setSort(s => ({ col, dir: s.col === col ? -s.dir : 1 }));
+  const SI = ({ col }) => <i className={`ti ${sort.col === col ? (sort.dir > 0 ? "ti-arrow-up" : "ti-arrow-down") : "ti-arrows-sort"}`} aria-hidden style={{ fontSize: 10, marginLeft: 3, opacity: sort.col === col ? 1 : 0.3 }} />;
+
+  const cols = [
+    { k: "acao", l: "Ativo", a: "left" },
+    { k: "nPos", l: "Nº posições", a: "right" },
+    { k: "totalQtd", l: "Qtd total", a: "right" },
+    { k: "totalMtM", l: "MtM total (R$)", a: "right" },
+    { k: "totalPL", l: "P&L total (R$)", a: "right" },
+  ];
+
+  // Totais gerais
+  const tMtM = rows.reduce((s, g) => s + g.totalMtM, 0);
+  const tPL = rows.reduce((s, g) => s + g.totalPL, 0);
+  const tQtd = rows.reduce((s, g) => s + g.totalQtd, 0);
+  const tPos = rows.reduce((s, g) => s + g.nPos, 0);
+  const anyMtM = rows.some(g => g.mtmCount > 0);
+  const anyPL = rows.some(g => g.plCount > 0);
+
+  return (
+    <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-lg)", overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 520 }}>
+        <thead>
+          <tr>{cols.map(c => <th key={c.k} onClick={() => toggleSort(c.k)} style={{ ...th(c.a), cursor: "pointer", userSelect: "none" }}>{c.l}<SI col={c.k} /></th>)}</tr>
+        </thead>
+        <tbody>
+          {sorted.map((g, i) => (
+            <tr key={i} style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+              <td style={{ ...td("left"), fontWeight: 500 }}>{g.acao}</td>
+              <td style={td("right")}>{g.nPos}</td>
+              <td style={td("right")}>{fmt(g.totalQtd, 0)}</td>
+              <td style={{ ...td("right"), color: g.mtmCount === 0 ? "var(--color-text-secondary)" : g.totalMtM >= 0 ? C_POS : C_NEG }}>
+                {g.mtmCount === 0 ? "—" : fmtR(g.totalMtM)}
+                {g.mtmCount > 0 && g.mtmCount < g.nPos && <span style={{ fontSize: 10, color: "var(--color-text-secondary)", marginLeft: 4 }}>({g.mtmCount}/{g.nPos})</span>}
+              </td>
+              <td style={{ ...td("right"), color: g.plCount === 0 ? "var(--color-text-secondary)" : g.totalPL >= 0 ? C_POS : C_NEG }}>
+                {g.plCount === 0 ? "—" : fmtR(g.totalPL)}
+                {g.plCount > 0 && g.plCount < g.nPos && <span style={{ fontSize: 10, color: "var(--color-text-secondary)", marginLeft: 4 }}>({g.plCount}/{g.nPos})</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ borderTop: "0.5px solid var(--color-border-primary)", background: "var(--color-background-secondary)" }}>
+            <td style={{ ...td("left"), fontWeight: 500 }}>Total</td>
+            <td style={{ ...td("right"), fontWeight: 500 }}>{tPos}</td>
+            <td style={{ ...td("right"), fontWeight: 500 }}>{fmt(tQtd, 0)}</td>
+            <td style={{ ...td("right"), fontWeight: 500, color: !anyMtM ? "var(--color-text-secondary)" : tMtM >= 0 ? C_POS : C_NEG }}>{!anyMtM ? "—" : fmtR(tMtM)}</td>
+            <td style={{ ...td("right"), fontWeight: 500, color: !anyPL ? "var(--color-text-secondary)" : tPL >= 0 ? C_POS : C_NEG }}>{!anyPL ? "—" : fmtR(tPL)}</td>
           </tr>
         </tfoot>
       </table>
