@@ -157,7 +157,16 @@ const TABS = [
   { id: "pl", label: "P&L", icon: "ti-chart-bar" },
   { id: "irpf", label: "IRPF", icon: "ti-receipt-tax" },
 ];
-const C_POS = "#1D9E75", C_NEG = "#D85A30";
+const C_POS = "#1D9E75", C_NEG = "#D85A30", C_WARN = "#C8881A";
+
+// Cor para Mkt vs Strike: ITM (<0) vermelho, 0-10% amarelo, >10% normal
+function mktColor(val) {
+  if (isNA(val) || isNaN(parseFloat(val))) return "var(--color-text-secondary)";
+  const v = parseFloat(val);
+  if (v < 0) return C_NEG;
+  if (v <= 0.10) return C_WARN;
+  return "var(--color-text-primary)";
+}
 const th = (a) => ({ padding: "9px 12px", textAlign: a, fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", whiteSpace: "nowrap", background: "var(--color-background-secondary)" });
 const td = (a) => ({ padding: "8px 12px", textAlign: a, color: "var(--color-text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
 
@@ -561,7 +570,7 @@ function ProximityAlert({ positions, threshold }) {
                     <td style={{ ...td("left"), fontFamily: "var(--font-mono)", fontSize: 11 }}>{p.ticker}</td>
                     <td style={td("left")}>{p.acao}</td>
                     <td style={td("right")}>R$ {fmt(p.strike, 2)}</td>
-                    <td style={{ ...td("right"), fontWeight: 500, color: C_NEG }}>{fmtPct(pct)}</td>
+                    <td style={{ ...td("right"), fontWeight: 500, color: mktColor(pct) }}>{fmtPct(pct)}</td>
                     <td style={td("right")}>{fmtDate(p.vencimento)}</td>
                   </tr>
                 );
@@ -686,7 +695,7 @@ function PositionsTable({ positions }) {
                 <td style={td("right")}>{fmt(p.qtd, 0)}</td>
                 <td style={td("right")}>R$ {fmt(p.precoVenda, 2)}</td>
                 <td style={td("right")}>R$ {fmt(p.strike, 2)}</td>
-                <td style={{ ...td("right"), color: isNA(p.mktVsStrike) ? "var(--color-text-secondary)" : parseFloat(p.mktVsStrike) <= 0.10 ? C_NEG : "var(--color-text-primary)", fontWeight: !isNA(p.mktVsStrike) && parseFloat(p.mktVsStrike) <= 0.10 ? 500 : 400 }}>{isNA(p.mktVsStrike) ? "—" : fmtPct(p.mktVsStrike)}</td>
+                <td style={{ ...td("right"), color: mktColor(p.mktVsStrike), fontWeight: !isNA(p.mktVsStrike) && parseFloat(p.mktVsStrike) <= 0.10 ? 500 : 400 }}>{isNA(p.mktVsStrike) ? "—" : fmtPct(p.mktVsStrike)}</td>
                 <td style={td("right")}>{fmtDate(p.vencimento)}</td>
                 <td style={{ ...td("right"), color: isNA(p.mtm) ? "var(--color-text-secondary)" : mtmN >= 0 ? C_POS : C_NEG }}>{isNA(p.mtm) ? "—" : fmtR(p.mtm)}</td>
                 <td style={{ ...td("right"), color: isNA(p.plTotal) ? "var(--color-text-secondary)" : plN >= 0 ? C_POS : C_NEG }}>{isNA(p.plTotal) ? "—" : fmtR(p.plTotal)}</td>
