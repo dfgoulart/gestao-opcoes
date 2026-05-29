@@ -88,7 +88,7 @@ function parseWorkbook(wb) {
       if (!row[1]) continue;
       positions.push({
         ticker: row[0], acao: row[1], tipo: row[2], qtd: row[3],
-        precoVenda: row[5], strike: row[6], vencimento: row[11],
+        precoVenda: row[5], strike: row[6], mktVsStrike: row[10], vencimento: row[11],
         mtm: row[12], plUnit: row[13], plTotal: row[14], plPct: row[15],
       });
     }
@@ -402,6 +402,9 @@ export default function App() {
             </div>
           </div>
 
+          {/* Alerta de proximidade do strike */}
+          <ProximityAlert positions={positionsOpen} threshold={0.10} />
+
           {/* Consolidado por empresa */}
           <h3 style={{ fontSize: 15, fontWeight: 500, margin: "4px 0 10px" }}>Consolidado por ativo</h3>
           <div style={{ marginBottom: "1.5rem" }}>
@@ -509,6 +512,68 @@ function PLTable({ data }) {
   );
 }
 
+function ProximityAlert({ positions, threshold }) {
+  // Filtra posições com Mkt vs Strike disponível e dentro do threshold
+  const comDados = positions.filter(p => !isNA(p.mktVsStrike) && !isNaN(parseFloat(p.mktVsStrike)));
+
+  // Se nenhum dado disponível (Profit fechado), mostra aviso
+  if (comDados.length === 0) {
+    return (
+      <div style={{ background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", padding: "12px 16px", marginBottom: "1.5rem", fontSize: 13, color: "var(--color-text-secondary)" }}>
+        <i className="ti ti-alert-triangle" aria-hidden style={{ marginRight: 6 }} />
+        Alerta de proximidade do strike indisponível — salve a planilha com o Profit aberto para calcular a distância Mkt vs Strike.
+      </div>
+    );
+  }
+
+  const proximas = comDados
+    .filter(p => parseFloat(p.mktVsStrike) <= threshold)
+    .sort((a, b) => parseFloat(a.mktVsStrike) - parseFloat(b.mktVsStrike));
+
+  return (
+    <div style={{ marginBottom: "1.5rem" }}>
+      <h3 style={{ fontSize: 15, fontWeight: 500, margin: "4px 0 10px", display: "flex", alignItems: "center", gap: 6 }}>
+        <i className="ti ti-alert-triangle" aria-hidden style={{ color: proximas.length > 0 ? C_NEG : "var(--color-text-secondary)" }} />
+        Proximidade do strike — Mkt vs Strike ≤ {(threshold * 100).toFixed(0)}%
+      </h3>
+      {proximas.length === 0 ? (
+        <div style={{ background: "var(--color-background-success)", borderRadius: "var(--border-radius-md)", padding: "12px 16px", fontSize: 13, color: "var(--color-text-success)" }}>
+          <i className="ti ti-circle-check" aria-hidden style={{ marginRight: 6 }} />
+          Nenhuma posição com Mkt vs Strike de {(threshold * 100).toFixed(0)}% ou menos. Todas com folga.
+        </div>
+      ) : (
+        <div style={{ border: `0.5px solid ${C_NEG}`, borderRadius: "var(--border-radius-lg)", overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 480 }}>
+            <thead>
+              <tr>
+                <th style={th("left")}>Opção</th>
+                <th style={th("left")}>Ação</th>
+                <th style={th("right")}>Strike</th>
+                <th style={th("right")}>Mkt vs Strike</th>
+                <th style={th("right")}>Vencimento</th>
+              </tr>
+            </thead>
+            <tbody>
+              {proximas.map((p, i) => {
+                const pct = parseFloat(p.mktVsStrike);
+                return (
+                  <tr key={i} style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+                    <td style={{ ...td("left"), fontFamily: "var(--font-mono)", fontSize: 11 }}>{p.ticker}</td>
+                    <td style={td("left")}>{p.acao}</td>
+                    <td style={td("right")}>R$ {fmt(p.strike, 2)}</td>
+                    <td style={{ ...td("right"), fontWeight: 500, color: C_NEG }}>{fmtPct(pct)}</td>
+                    <td style={td("right")}>{fmtDate(p.vencimento)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ByCompanyTable({ positions }) {
   const [sort, setSort] = useState({ col: "totalMtM", dir: 1 });
 
@@ -600,7 +665,8 @@ function PositionsTable({ positions }) {
   const cols = [
     { k: "ticker", l: "Opção", a: "left" }, { k: "acao", l: "Ação", a: "left" },
     { k: "qtd", l: "Qtd", a: "right" }, { k: "precoVenda", l: "Px venda", a: "right" },
-    { k: "strike", l: "Strike", a: "right" }, { k: "vencimento", l: "Vencimento", a: "right" },
+    { k: "strike", l: "Strike", a: "right" }, { k: "mktVsStrike", l: "Mkt vs Strike", a: "right" },
+    { k: "vencimento", l: "Vencimento", a: "right" },
     { k: "mtm", l: "MtM (R$)", a: "right" }, { k: "plTotal", l: "P&L (R$)", a: "right" },
     { k: "plPct", l: "P&L (%)", a: "right" },
   ];
@@ -620,6 +686,7 @@ function PositionsTable({ positions }) {
                 <td style={td("right")}>{fmt(p.qtd, 0)}</td>
                 <td style={td("right")}>R$ {fmt(p.precoVenda, 2)}</td>
                 <td style={td("right")}>R$ {fmt(p.strike, 2)}</td>
+                <td style={{ ...td("right"), color: isNA(p.mktVsStrike) ? "var(--color-text-secondary)" : parseFloat(p.mktVsStrike) <= 0.10 ? C_NEG : "var(--color-text-primary)", fontWeight: !isNA(p.mktVsStrike) && parseFloat(p.mktVsStrike) <= 0.10 ? 500 : 400 }}>{isNA(p.mktVsStrike) ? "—" : fmtPct(p.mktVsStrike)}</td>
                 <td style={td("right")}>{fmtDate(p.vencimento)}</td>
                 <td style={{ ...td("right"), color: isNA(p.mtm) ? "var(--color-text-secondary)" : mtmN >= 0 ? C_POS : C_NEG }}>{isNA(p.mtm) ? "—" : fmtR(p.mtm)}</td>
                 <td style={{ ...td("right"), color: isNA(p.plTotal) ? "var(--color-text-secondary)" : plN >= 0 ? C_POS : C_NEG }}>{isNA(p.plTotal) ? "—" : fmtR(p.plTotal)}</td>
